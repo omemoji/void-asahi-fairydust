@@ -1,0 +1,7 @@
+# Build/distribution artifacts — never commit large binaries or key material.
+dist/
+*.xbps
+*.xbps.sig2
+*-repodata
+privkey.pem
+*.key

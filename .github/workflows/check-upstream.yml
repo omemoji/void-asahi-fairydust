@@ -1,0 +1,55 @@
+name: Check upstream fairydust
+
+# The kernel itself is too heavy to build on GitHub-hosted (x86_64) runners, so
+# this does NOT build anything. It only watches the upstream fairydust branch and
+# opens an issue when it advances past the commit currently pinned in the
+# vendored template, so the maintainer knows when to rebuild/republish locally.
+
+on:
+  schedule:
+    - cron: "0 6 * * *"   # daily
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compare pinned commit with upstream HEAD
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          template=srcpkg/linux-asahi-fairydust/template
+          pinned=$(grep -m1 '^_commit=' "$template" | cut -d= -f2)
+          upstream=$(git ls-remote https://github.com/AsahiLinux/linux refs/heads/fairydust | cut -f1)
+          echo "pinned=$pinned"
+          echo "upstream=$upstream"
+
+          if [ -z "$upstream" ]; then
+            echo "Could not resolve upstream HEAD; skipping."; exit 0
+          fi
+          if [ "$pinned" = "$upstream" ]; then
+            echo "Up to date."; exit 0
+          fi
+
+          # Avoid duplicate issues: skip if an open issue already names this commit.
+          existing=$(gh issue list --state open --search "$upstream in:title" --json number --jq 'length')
+          if [ "$existing" != "0" ]; then
+            echo "An open issue already tracks $upstream."; exit 0
+          fi
+
+          gh issue create \
+            --title "fairydust advanced upstream: ${upstream}" \
+            --body "Upstream \`fairydust\` HEAD is \`${upstream}\`, but the template pins \`${pinned}\`.
+
+          To update and republish (locally, on aarch64):
+          1. \`_commit=${upstream}\`
+          2. refresh \`version\` — base kernel (top-level Makefile \`VERSION.PATCHLEVEL.SUBLEVEL\`) + the commit's committer date, and reset \`revision=1\`
+          3. \`xgensum -c -i linux-asahi-fairydust\` to regenerate the \`@\` checksum
+          4. \`./mkrepo.sh\` then upload the assets"
