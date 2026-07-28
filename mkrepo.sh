@@ -15,6 +15,9 @@
 #   KEYDIR     dir holding privkey.pem            (default: ~/.config/void-asahi-fairydust)
 #   SIGNEDBY   signature identity string
 #   XBPS_PASSPHRASE  passphrase for the (encrypted) signing key; prompted if unset
+#   GENFROM    void-packages revision to generate the template from (default: its
+#              working tree); passed to gen.sh --from
+#   SKIP_GEN=1 build srcpkg/ as committed, without regenerating from upstream
 set -eu
 
 VOIDPKGS="${VOIDPKGS:-$HOME/github/omemoji/void-packages}"
@@ -29,6 +32,7 @@ HERE=$(CDPATH= cd "$(dirname "$0")" && pwd)
 DIST="$HERE/dist/$ARCH"
 
 # --- sanity checks ---------------------------------------------------------
+[ -x "$HERE/gen.sh" ] || { echo "error: gen.sh not found next to mkrepo.sh" >&2; exit 1; }
 [ -x "$VOIDPKGS/xbps-src" ] || { echo "error: xbps-src not found under VOIDPKGS=$VOIDPKGS" >&2; exit 1; }
 [ -f "$PRIVKEY" ] || { echo "error: signing key not found: $PRIVKEY" >&2; exit 1; }
 command -v xbps-rindex >/dev/null || { echo "error: xbps-rindex not in PATH" >&2; exit 1; }
@@ -45,10 +49,42 @@ if grep -q ENCRYPTED "$PRIVKEY" && [ -z "${XBPS_PASSPHRASE:-}" ]; then
 	export XBPS_PASSPHRASE
 fi
 
-# --- 1. sync vendored template (keep git copy = what we build) -------------
-echo ">> syncing vendored srcpkg from $VOIDPKGS"
-rm -rf "$HERE/srcpkg/$PKG"
-cp -a "$VOIDPKGS/srcpkgs/$PKG" "$HERE/srcpkg/"
+# --- 1. generate the template from upstream, then stage it for the build ---
+# srcpkg/$PKG is a generated artifact (see gen.sh): upstream's srcpkgs/linux-asahi
+# plus our header, renames and patches. Generating here keeps the git copy equal
+# to what actually gets built, and picks up upstream's template fixes.
+if [ "${SKIP_GEN:-0}" = 1 ]; then
+	echo ">> skipping generation (SKIP_GEN=1); building srcpkg/$PKG as committed"
+	[ -f "$HERE/srcpkg/$PKG/template" ] || { echo "error: srcpkg/$PKG/template missing" >&2; exit 1; }
+else
+	echo ">> generating srcpkg/$PKG from $VOIDPKGS"
+	if [ -n "${GENFROM:-}" ]; then
+		"$HERE/gen.sh" --from "$GENFROM"
+	else
+		"$HERE/gen.sh"
+	fi
+fi
+
+echo ">> staging srcpkg/$PKG into $VOIDPKGS/srcpkgs"
+rm -rf "$VOIDPKGS/srcpkgs/$PKG"
+cp -a "$HERE/srcpkg/$PKG" "$VOIDPKGS/srcpkgs/"
+
+# xbps-src resolves every subpackage through its own srcpkgs/ entry, which must
+# be a symlink to the parent package's directory (that is how upstream ships
+# linux-asahi-headers and -dbg). Without them the build dies at the packaging
+# stage -- after the full kernel compile -- with "nonexistent file:
+# srcpkgs/$PKG-dbg/template". Derive them from the template so a subpackage
+# added upstream does not reintroduce that hours-late failure.
+for sub in $(sed -n 's/^\([a-zA-Z0-9._-]*\)_package() *{.*/\1/p' "$VOIDPKGS/srcpkgs/$PKG/template"); do
+	[ "$sub" = "$PKG" ] && continue
+	link="$VOIDPKGS/srcpkgs/$sub"
+	if [ -e "$link" ] && [ ! -L "$link" ]; then
+		echo "error: $link exists and is not a symlink; refusing to touch it" >&2
+		exit 1
+	fi
+	echo ">> linking srcpkgs/$sub -> $PKG"
+	ln -sfn "$PKG" "$link"
+done
 
 # --- 2. build --------------------------------------------------------------
 echo ">> building $PKG in $VOIDPKGS"
