@@ -251,19 +251,29 @@ bump() {
 		return 0
 	fi
 
-	base=$(our_version); base=${base%%+*}
+	oldbase=$(our_version); oldbase=${oldbase%%+*}
 	echo ">> $cur -> $sha (committed $date)"
+
+	# The version prefix is the base kernel release, which lives in the tree's
+	# top-level Makefile -- read it rather than assuming the snapshot stayed on
+	# the same base.
+	mk=$(curl -fsSL "https://raw.githubusercontent.com/$GITHUB_REPO/$sha/Makefile") ||
+		die "cannot read the Makefile of $sha"
+	base=$(printf '%s\n' "$mk" | awk -F'= *' '
+		/^VERSION *=/    { v=$2 }
+		/^PATCHLEVEL *=/ { p=$2 }
+		/^SUBLEVEL *=/   { s=$2 }
+		END { gsub(/ /,"",v); gsub(/ /,"",p); gsub(/ /,"",s);
+		      if (v == "" || p == "") exit 1; print v "." p "." (s == "" ? "0" : s) }')
+	[ -n "$base" ] || die "could not read VERSION/PATCHLEVEL/SUBLEVEL from the Makefile of $sha"
+	if [ "$base" != "$oldbase" ]; then
+		echo ">> base kernel moved: $oldbase -> $base"
+	fi
 
 	url="https://github.com/$GITHUB_REPO/archive/$sha.tar.gz"
 	echo ">> computing contents checksum (downloads the tarball, this takes a while)"
 	sum=$(curl -fsSL "$url" | tar -xOzf - | sha256sum | cut -d' ' -f1) ||
 		die "failed to download or hash $url"
-
-	# The base kernel release lives in the tree's Makefile; a snapshot that moved
-	# to a new base needs a new version prefix, and a fresh dotconfig.
-	echo "note: verify the base kernel of the new snapshot:"
-	echo "      https://github.com/$GITHUB_REPO/raw/$sha/Makefile  (VERSION/PATCHLEVEL/SUBLEVEL)"
-	echo "      keeping base '$base' -- edit header.in if it changed."
 
 	tmp=$(mktemp)
 	sed -e "s/^_commit=.*/_commit=$sha/" \

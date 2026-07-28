@@ -76,7 +76,7 @@ openssl rsa -pubin -in pubkey.pem -outform DER | openssl dgst -sha256
 
 The `fairydust` branch is a rolling snapshot pinned to a specific commit; the
 package `version` encodes the base kernel plus the commit date
-(e.g. `7.0.13+20260619`). When a new snapshot is published here, a plain
+(e.g. `7.1.5+20260727`). When a new snapshot is published here, a plain
 `sudo xbps-install -Su` will pick it up (`preserve=yes` keeps older kernels
 installed so you can fall back).
 

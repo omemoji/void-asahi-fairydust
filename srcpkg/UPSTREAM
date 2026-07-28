@@ -1,4 +1,4 @@
-void-packages: e10be6feca32afe0771ae2715a38cf4ac40f9cc9
-upstream-version: 7.0.13+1
-template-sha256: be5aae8fe0cf083c574b1c2570cf240bf099e2d254b9cec9c8b5063e478b3258
-synced: 2026-07-28T16:33:55Z
+void-packages: 76694e7a02ac33e7084cedbeb5da184155b3b897
+upstream-version: 7.1.5+2
+template-sha256: ca1cfb55898a1fa797c019bf153423580fbb1f850d45eaa9e670ceab8c371ebc
+synced: 2026-07-28T16:40:03Z

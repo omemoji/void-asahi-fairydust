@@ -1,6 +1,6 @@
 # Template file for 'linux-asahi-fairydust'
 pkgname=linux-asahi-fairydust
-version=7.0.13+20260619
+version=7.1.5+20260727
 revision=1
 short_desc="Linux kernel and modules for Apple Silicon (fairydust branch)"
 maintainer="omemoji <me@omemoji.com>"
@@ -16,9 +16,9 @@ homepage="https://asahilinux.org"
 # NOTE: this block is the head of the generated template; everything below it
 # comes from void-packages' srcpkgs/linux-asahi. Use ./gen.sh --bump to advance
 # the snapshot rather than editing _commit/version/checksum by hand.
-_commit=c83992242bc1e38bfc861a91696534479a2dbdf4
+_commit=e3e35907c17a05773d481e58a566bf9108166cc5
 distfiles="https://github.com/AsahiLinux/linux/archive/${_commit}.tar.gz"
-checksum=@46edd4014a7893c2926b9587f177a92287e01b8988ce4abc53ec53e19201ab77
+checksum=@184ea99fbf7fc5176be1a94f15ab04e85161ce900cf39d6917bc0594fd711080
 
 python_version=3
 
@@ -70,6 +70,15 @@ post_patch() {
 	# for its proc-macros without excluding the sysroot, so rustc finds two
 	# candidates for each (in-tree rlib vs. sysroot rmeta) and fails with E0464.
 	# Point the externs at the in-tree rlibs explicitly to disambiguate.
+	vsed -i rust/Makefile \
+		-e 's|--extern proc_macro2 \\|--extern proc_macro2=$(objtree)/$(obj)/libproc_macro2.rlib \\|g' \
+		-e 's|--extern quote \\|--extern quote=$(objtree)/$(obj)/libquote.rlib \\|g' \
+		-e 's|--extern syn \\|--extern syn=$(objtree)/$(obj)/libsyn.rlib \\|g' \
+		-e 's|--extern proc_macro2 --extern quote --extern syn|--extern proc_macro2=$(objtree)/$(obj)/libproc_macro2.rlib --extern quote=$(objtree)/$(obj)/libquote.rlib --extern syn=$(objtree)/$(obj)/libsyn.rlib|g'
+}
+
+pre_configure() {
+	# can be dropped once aarch64 is built natively
 	vsed -i rust/Makefile \
 		-e 's|--extern proc_macro2 \\|--extern proc_macro2=$(objtree)/$(obj)/libproc_macro2.rlib \\|g' \
 		-e 's|--extern quote \\|--extern quote=$(objtree)/$(obj)/libquote.rlib \\|g' \
