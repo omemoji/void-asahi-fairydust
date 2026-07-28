@@ -12,6 +12,10 @@ homepage="https://asahilinux.org"
 # date suffix (and reset revision to 1) when advancing the snapshot.
 # The GitHub archive is generated on the fly, so its gzip checksum is not stable;
 # use the "@" content checksum (sha256 of the extracted tar) instead.
+#
+# NOTE: this block is the head of the generated template; everything below it
+# comes from void-packages' srcpkgs/linux-asahi. Use ./gen.sh --bump to advance
+# the snapshot rather than editing _commit/version/checksum by hand.
 _commit=c83992242bc1e38bfc861a91696534479a2dbdf4
 distfiles="https://github.com/AsahiLinux/linux/archive/${_commit}.tar.gz"
 checksum=@46edd4014a7893c2926b9587f177a92287e01b8988ce4abc53ec53e19201ab77

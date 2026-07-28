@@ -1,0 +1,21 @@
+# Template file for 'linux-asahi-fairydust'
+pkgname=linux-asahi-fairydust
+version=7.0.13+20260619
+revision=1
+short_desc="Linux kernel and modules for Apple Silicon (fairydust branch)"
+maintainer="omemoji <me@omemoji.com>"
+license="GPL-2.0-only"
+homepage="https://asahilinux.org"
+# fairydust is an unreleased, untagged rolling branch, so pin to a specific
+# commit. version is the base kernel release (from the top-level Makefile) plus
+# the commit's committer date as the snapshot marker; bump both _commit and the
+# date suffix (and reset revision to 1) when advancing the snapshot.
+# The GitHub archive is generated on the fly, so its gzip checksum is not stable;
+# use the "@" content checksum (sha256 of the extracted tar) instead.
+#
+# NOTE: this block is the head of the generated template; everything below it
+# comes from void-packages' srcpkgs/linux-asahi. Use ./gen.sh --bump to advance
+# the snapshot rather than editing _commit/version/checksum by hand.
+_commit=c83992242bc1e38bfc861a91696534479a2dbdf4
+distfiles="https://github.com/AsahiLinux/linux/archive/${_commit}.tar.gz"
+checksum=@46edd4014a7893c2926b9587f177a92287e01b8988ce4abc53ec53e19201ab77

@@ -1,0 +1,114 @@
+name: track-upstream
+
+# Watches the two things this package follows and reports when either moves:
+#   * void-packages srcpkgs/linux-asahi -- the template we generate from
+#   * AsahiLinux/linux @ fairydust      -- the branch we pin a commit of
+#
+# It never builds (that needs aarch64 hardware and hours); it only files a
+# single, continuously updated issue so the drift is visible.
+
+on:
+  schedule:
+    - cron: '17 4 * * 1'   # Mondays, 04:17 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+env:
+  ISSUE_TITLE: 'upstream drift: linux-asahi / fairydust'
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch srcpkgs/linux-asahi from void-packages
+        run: |
+          git clone --depth 1 --filter=blob:none --sparse \
+            https://github.com/void-linux/void-packages "$RUNNER_TEMP/void-packages"
+          git -C "$RUNNER_TEMP/void-packages" sparse-checkout set srcpkgs/linux-asahi
+
+      - name: Check template drift
+        id: tmpl
+        env:
+          VOIDPKGS: ${{ runner.temp }}/void-packages
+        run: |
+          set +e
+          out=$(./gen.sh --check 2>&1); rc=$?
+          set -e
+          echo "$out"
+          {
+            echo 'report<<EOF'
+            echo "$out"
+            echo EOF
+            echo "drift=$([ $rc -eq 0 ] && echo no || echo yes)"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Check fairydust branch head
+        id: fd
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          pinned=$(sed -n 's/^_commit=//p' srcpkg/header.in)
+          head=$(gh api repos/AsahiLinux/linux/commits/fairydust \
+            --jq '.sha + " " + .commit.committer.date')
+          sha=${head%% *}; date=${head#* }
+          echo "pinned $pinned"
+          echo "head   $sha ($date)"
+          if [ "$sha" = "$pinned" ]; then
+            echo "drift=no" >> "$GITHUB_OUTPUT"
+            echo "report=pinned to the current fairydust head ($pinned)" >> "$GITHUB_OUTPUT"
+          else
+            echo "drift=yes" >> "$GITHUB_OUTPUT"
+            {
+              echo 'report<<EOF'
+              echo "New fairydust commits: pinned \`$pinned\`, head \`$sha\` (committed $date)"
+              echo "<https://github.com/AsahiLinux/linux/compare/$pinned...$sha>"
+              echo EOF
+            } >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: File or update the drift issue
+        if: steps.tmpl.outputs.drift == 'yes' || steps.fd.outputs.drift == 'yes'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TMPL_REPORT: ${{ steps.tmpl.outputs.report }}
+          FD_REPORT: ${{ steps.fd.outputs.report }}
+        run: |
+          body=$(cat <<EOF
+          Automated check from \`.github/workflows/track-upstream.yml\` (run $GITHUB_RUN_ID).
+
+          ## void-packages srcpkgs/linux-asahi
+
+          \`\`\`
+          $TMPL_REPORT
+          \`\`\`
+
+          ## AsahiLinux/linux @ fairydust
+
+          $FD_REPORT
+
+          ## To act on this
+
+          \`\`\`sh
+          git -C <void-packages> pull
+          ./gen.sh --bump fairydust   # only if the fairydust head moved
+          ./gen.sh                    # regenerate against current upstream
+          git diff srcpkg/            # review what upstream changed
+          ./mkrepo.sh                 # build on aarch64, then PUBLISH=1 to ship
+          \`\`\`
+
+          Closing this issue is fine; the next run reopens it while drift remains.
+          EOF
+          )
+          num=$(gh issue list --state open --search "\"$ISSUE_TITLE\" in:title" \
+            --json number,title --jq ".[] | select(.title == \"$ISSUE_TITLE\") | .number" | head -1)
+          if [ -n "$num" ]; then
+            gh issue edit "$num" --body "$body"
+            echo "updated issue #$num"
+          else
+            gh issue create --title "$ISSUE_TITLE" --body "$body"
+          fi

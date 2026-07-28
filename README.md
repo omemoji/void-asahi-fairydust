@@ -92,8 +92,8 @@ both installed and just pick the other entry at boot if something misbehaves.
 
 ## Building from source
 
-The package template is mirrored under [`srcpkg/`](./srcpkg/) for reference. To
-build it yourself, drop it into a [void-packages](https://github.com/void-linux/void-packages)
+The package template is committed under [`srcpkg/`](./srcpkg/). To build it
+yourself, drop it into a [void-packages](https://github.com/void-linux/void-packages)
 checkout and use `xbps-src`:
 
 ```sh
@@ -104,6 +104,41 @@ cd <void-packages>
 
 Maintainers can rebuild + sign + assemble this repository with
 [`mkrepo.sh`](./mkrepo.sh).
+
+### How the template tracks upstream
+
+`srcpkg/linux-asahi-fairydust/` is a **generated** artifact, not a hand-edited
+fork. It is void-packages' own `srcpkgs/linux-asahi` with three things layered
+on by [`gen.sh`](./gen.sh):
+
+| input | what it contributes |
+| --- | --- |
+| [`srcpkg/header.in`](./srcpkg/header.in) | the metadata head: `pkgname`, `version`, `_commit`, `distfiles`, `checksum` |
+| upstream's template, from `python_version=3` down | everything else, with `asahi` → `asahi-fairydust` renames applied mechanically |
+| [`srcpkg/patches/`](./srcpkg/patches/) | our genuine build fixes (currently one, for Rust proc-macro crates) |
+
+`files/arm64-dotconfig` and `files/mv-debug` are copied from upstream verbatim.
+So upstream's changes — new header file lists in `do_install`, `hostmakedepends`
+bumps, config changes — are inherited automatically, and anything that collides
+with our patches fails the generation loudly instead of rotting silently.
+[`srcpkg/UPSTREAM`](./srcpkg/UPSTREAM) records which void-packages revision the
+committed output was generated from.
+
+```sh
+./gen.sh                      # regenerate from the void-packages working tree
+./gen.sh --check              # report drift since the last sync; exits 1 on drift
+./gen.sh --from <rev>         # generate against a specific void-packages revision
+./gen.sh --bump <sha|branch>  # repin the fairydust snapshot (rewrites header.in)
+```
+
+`mkrepo.sh` regenerates before every build, so the committed `srcpkg/` always
+equals what was actually built and published. Pass `SKIP_GEN=1` to build the
+committed template as-is, or `GENFROM=<rev>` to reproduce an older sync.
+
+The [`track-upstream`](./.github/workflows/track-upstream.yml) workflow runs
+`gen.sh --check` weekly and also compares `_commit` against the head of the
+`fairydust` branch, filing a single self-updating issue when either moves. It
+never builds — that needs aarch64 hardware — it only makes the drift visible.
 
 ## Credits & license
 
