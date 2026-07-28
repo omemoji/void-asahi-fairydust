@@ -153,11 +153,12 @@ thing (drop the patch) or the surrounding context moved (refresh it against
 $UT). Regenerate once resolved."
 	done
 
-	printf 'void-packages: %s\nupstream-version: %s\ntemplate-sha256: %s\nsynced: %s\n' \
+	# no timestamp here on purpose: regenerating without an upstream change must
+	# leave the tree clean, and git already records when the sync happened.
+	printf 'void-packages: %s\nupstream-version: %s\ntemplate-sha256: %s\n' \
 		"$(upstream_rev)" \
 		"$(upstream_version)" \
 		"$(upstream_sum)" \
-		"$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
 		> "$STAMP"
 
 	base_warning

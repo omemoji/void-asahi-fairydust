@@ -69,6 +69,23 @@ echo ">> staging srcpkg/$PKG into $VOIDPKGS/srcpkgs"
 rm -rf "$VOIDPKGS/srcpkgs/$PKG"
 cp -a "$HERE/srcpkg/$PKG" "$VOIDPKGS/srcpkgs/"
 
+# xbps-src resolves every subpackage through its own srcpkgs/ entry, which must
+# be a symlink to the parent package's directory (that is how upstream ships
+# linux-asahi-headers and -dbg). Without them the build dies at the packaging
+# stage -- after the full kernel compile -- with "nonexistent file:
+# srcpkgs/$PKG-dbg/template". Derive them from the template so a subpackage
+# added upstream does not reintroduce that hours-late failure.
+for sub in $(sed -n 's/^\([a-zA-Z0-9._-]*\)_package() *{.*/\1/p' "$VOIDPKGS/srcpkgs/$PKG/template"); do
+	[ "$sub" = "$PKG" ] && continue
+	link="$VOIDPKGS/srcpkgs/$sub"
+	if [ -e "$link" ] && [ ! -L "$link" ]; then
+		echo "error: $link exists and is not a symlink; refusing to touch it" >&2
+		exit 1
+	fi
+	echo ">> linking srcpkgs/$sub -> $PKG"
+	ln -sfn "$PKG" "$link"
+done
+
 # --- 2. build --------------------------------------------------------------
 echo ">> building $PKG in $VOIDPKGS"
 ( cd "$VOIDPKGS" && ./xbps-src pkg "$PKG" )

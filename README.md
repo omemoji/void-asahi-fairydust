@@ -99,6 +99,10 @@ checkout and use `xbps-src`:
 ```sh
 cp -r srcpkg/linux-asahi-fairydust <void-packages>/srcpkgs/
 cd <void-packages>
+# xbps-src needs a srcpkgs/ entry per subpackage, symlinked to the parent --
+# without these the build fails at the packaging stage, after the full compile
+ln -sfn linux-asahi-fairydust srcpkgs/linux-asahi-fairydust-headers
+ln -sfn linux-asahi-fairydust srcpkgs/linux-asahi-fairydust-dbg
 ./xbps-src pkg linux-asahi-fairydust
 ```
 
