@@ -75,7 +75,8 @@ cp -a "$HERE/srcpkg/$PKG" "$VOIDPKGS/srcpkgs/"
 # stage -- after the full kernel compile -- with "nonexistent file:
 # srcpkgs/$PKG-dbg/template". Derive them from the template so a subpackage
 # added upstream does not reintroduce that hours-late failure.
-for sub in $(sed -n 's/^\([a-zA-Z0-9._-]*\)_package() *{.*/\1/p' "$VOIDPKGS/srcpkgs/$PKG/template"); do
+subpkgs=$(sed -n 's/^\([a-zA-Z0-9._-]*\)_package() *{.*/\1/p' "$VOIDPKGS/srcpkgs/$PKG/template")
+for sub in $subpkgs; do
 	[ "$sub" = "$PKG" ] && continue
 	link="$VOIDPKGS/srcpkgs/$sub"
 	if [ -e "$link" ] && [ ! -L "$link" ]; then
@@ -91,10 +92,27 @@ echo ">> building $PKG in $VOIDPKGS"
 ( cd "$VOIDPKGS" && ./xbps-src pkg "$PKG" )
 
 # --- 3. collect artifacts (main + headers only; no -dbg) -------------------
-binroot="$VOIDPKGS/hostdir/binpkgs/$PKG"
-echo ">> assembling repository in $DIST"
+# xbps-src drops binary packages in hostdir/binpkgs itself; only subpackages
+# that set repository= land in a subdirectory (here just -dbg, repository=debug,
+# which we do not distribute).
+binroot="$VOIDPKGS/hostdir/binpkgs"
+_version=$(sed -n 's/^version=//p' "$VOIDPKGS/srcpkgs/$PKG/template" | head -1)
+_revision=$(sed -n 's/^revision=//p' "$VOIDPKGS/srcpkgs/$PKG/template" | head -1)
+[ -n "$_version" ] && [ -n "$_revision" ] || {
+	echo "error: could not read version/revision from srcpkgs/$PKG/template" >&2; exit 1; }
+PKGVER="${_version}_${_revision}"
+
+echo ">> assembling repository in $DIST ($PKGVER)"
 rm -rf "$DIST"; mkdir -p "$DIST"
-cp "$binroot"/${PKG}-*.xbps "$DIST"/   # -dbg lives in debug/ and is excluded
+for sub in "$PKG" $subpkgs; do   # $subpkgs holds the subpackages only
+	case "$sub" in
+	*-dbg) continue ;;   # built into binpkgs/debug/, intentionally not shipped
+	esac
+	f="$binroot/${sub}-${PKGVER}.${ARCH}.xbps"
+	[ -f "$f" ] || { echo "error: expected artifact missing: $f" >&2; exit 1; }
+	echo ">> collecting ${sub}-${PKGVER}.${ARCH}.xbps"
+	cp "$f" "$DIST"/
+done
 
 # --- 4. index + sign -------------------------------------------------------
 echo ">> indexing"
