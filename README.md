@@ -151,3 +151,10 @@ Janne Grunau, Hector "marcan" Martin, and others). The kernel is licensed
 `GPL-2.0-only`. This repository only packages and redistributes their work; see
 the [Asahi Linux progress report](https://asahilinux.org/2026/02/progress-report-6-19/)
 for the authoritative status of the `fairydust` branch.
+
+The packaging material here — `gen.sh`, `mkrepo.sh`, the workflows, this README
+and the template sources under `srcpkg/` — is [BSD-2-Clause](./LICENSE), matching
+void-packages, from which `srcpkg/linux-asahi-fairydust/` is generated. That
+license covers only those files; the kernel and the published `.xbps` packages
+remain `GPL-2.0-only`, and their corresponding source is the commit pinned as
+`_commit` in [`srcpkg/header.in`](./srcpkg/header.in).
