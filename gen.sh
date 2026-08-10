@@ -10,6 +10,7 @@
 #                                  renames applied mechanically
 #   srcpkg/patches/*.patch      -> our genuine modifications (currently none:
 #                                  upstream carries the one fix we used to add)
+#   srcpkg/config-extra         -> kernel config answers appended to arm64-dotconfig
 #   files/                      -> copied verbatim from upstream
 #
 # Anything upstream changes below the head (headers file lists, hostmakedepends,
@@ -40,17 +41,23 @@ HERE=$(CDPATH= cd "$(dirname "$0")" && pwd)
 SRCPKG="$HERE/srcpkg"
 HEADER="$SRCPKG/header.in"
 PATCHDIR="$SRCPKG/patches"
+CONFEXTRA="$SRCPKG/config-extra"
+DOTCONFIG=arm64-dotconfig
 STAMP="$SRCPKG/UPSTREAM"
 OUT="$SRCPKG/$PKG"
 
 FROM=""      # void-packages revision to read upstream from ("" = working tree)
 USRC=""      # directory holding the upstream template + files/ once resolved
 TMPDIR_=""
+TMPF_=""
 
 die() { echo "error: $*" >&2; exit 1; }
 # must not change the exit status: a trap whose last command fails would
 # override it, and --check's status is what CI reads.
-cleanup() { if [ -n "$TMPDIR_" ]; then rm -rf "$TMPDIR_"; fi; }
+cleanup() {
+	if [ -n "$TMPDIR_" ]; then rm -rf "$TMPDIR_"; fi
+	if [ -n "$TMPF_" ]; then rm -f "$TMPF_"; fi
+}
 trap cleanup EXIT
 
 # Materialize srcpkgs/linux-asahi -- from the working tree, or extracted from a
@@ -110,6 +117,35 @@ our_version() { sed -n 's/^version=//p' "$HEADER"; }
 
 stamp_get() { [ -f "$STAMP" ] && sed -n "s/^$1: //p" "$STAMP" || true; }
 
+# --- config fragment -------------------------------------------------------
+# arm64-dotconfig comes from upstream, which answers it for its own base kernel.
+# The fairydust snapshot is usually ahead, so its new symbols are unanswered and
+# `make oldconfig` stops for input mid-build. Answer them in srcpkg/config-extra
+# and they are appended to the generated dotconfig. Once upstream answers a
+# symbol itself, generation fails so the line can be dropped.
+apply_config_extra() {
+	dc="$1"
+	[ -f "$CONFEXTRA" ] || return 0
+	appended=0
+	while IFS= read -r line || [ -n "$line" ]; do
+		case "$line" in
+		"")                            continue ;;
+		"# CONFIG_"*" is not set")     sym=${line#\# }; sym=${sym%% *} ;;
+		CONFIG_*=*)                    sym=${line%%=*} ;;
+		\#*)                           continue ;;
+		*) die "config-extra: not a config line: $line" ;;
+		esac
+		if grep -q "^$sym=\|^# $sym is not set" "$dc"; then
+			die "config-extra: upstream now answers $sym in files/$DOTCONFIG; drop that line"
+		fi
+		if [ "$appended" = 0 ]; then
+			printf '\n# --- srcpkg/config-extra ---\n' >> "$dc"
+			appended=1
+		fi
+		printf '%s\n' "$line" >> "$dc"
+	done < "$CONFEXTRA"
+}
+
 # --- generate --------------------------------------------------------------
 generate() {
 	resolve_upstream
@@ -118,6 +154,7 @@ generate() {
 	rm -rf "$OUT"
 	mkdir -p "$OUT"
 	cp -a "$USRC/files" "$OUT/files"
+	apply_config_extra "$OUT/files/$DOTCONFIG"
 	# upstream's update(1) file follows the asahi-* tags; we pin a commit on an
 	# untagged branch, so ours is always the disabled one.
 	printf '%s\n' \
@@ -190,8 +227,9 @@ base_warning() {
 	[ "$ub" = "$ob" ] && return 0
 	cat >&2 <<EOF
 warning: base kernel mismatch -- upstream linux-asahi is $ub, this package
-         pins $ob. files/arm64-dotconfig comes from upstream, so oldconfig may
-         prompt during the build. Repin with --bump, or expect to answer it.
+         pins $ob. files/$DOTCONFIG comes from upstream, so oldconfig may prompt
+         during the build. Repin with --bump, answer it once and record it in
+         srcpkg/config-extra, or expect to answer it every time.
 EOF
 }
 
@@ -213,16 +251,26 @@ check() {
 	fi
 
 	# files/ is used verbatim, so a change there matters just as much --
-	# including one appearing or disappearing
+	# including one appearing or disappearing. The dotconfig is the exception:
+	# it carries srcpkg/config-extra, so compare against upstream + fragment.
 	for f in "$USRC/files/"*; do
 		b=$(basename "$f")
 		if [ ! -e "$OUT/files/$b" ]; then
 			echo "UPSTREAM DRIFT: files/$b is new upstream"
 			rc=1
-		elif ! cmp -s "$f" "$OUT/files/$b"; then
+			continue
+		fi
+		exp="$f"
+		if [ "$b" = "$DOTCONFIG" ] && [ -f "$CONFEXTRA" ]; then
+			TMPF_=$(mktemp); exp="$TMPF_"
+			cp "$f" "$exp"
+			apply_config_extra "$exp"
+		fi
+		if ! cmp -s "$exp" "$OUT/files/$b"; then
 			echo "UPSTREAM DRIFT: files/$b differs from the generated copy"
 			rc=1
 		fi
+		if [ -n "$TMPF_" ]; then rm -f "$TMPF_"; TMPF_=""; fi
 	done
 	for f in "$OUT/files/"*; do
 		b=$(basename "$f")

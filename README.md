@@ -120,13 +120,14 @@ fork. It is void-packages' own `srcpkgs/linux-asahi` with these layered on by
 | [`srcpkg/header.in`](./srcpkg/header.in)          | the metadata head: `pkgname`, `version`, `_commit`, `distfiles`, `checksum`    |
 | upstream's template, from `python_version=3` down | everything else, with `asahi` → `asahi-fairydust` renames applied mechanically |
 | `srcpkg/patches/*.patch`                          | our genuine build fixes — **currently none**, see below                        |
+| [`srcpkg/config-extra`](./srcpkg/config-extra)    | kernel config answers appended to `files/arm64-dotconfig`                      |
 
-`files/arm64-dotconfig` and `files/mv-debug` are copied from upstream verbatim.
-So upstream's changes — new header file lists in `do_install`, `hostmakedepends`
-bumps, config changes — are inherited automatically, and anything that collides
-with our patches fails the generation loudly instead of rotting silently.
-[`srcpkg/UPSTREAM`](./srcpkg/UPSTREAM) records which void-packages revision the
-committed output was generated from.
+`files/mv-debug` is copied from upstream verbatim, and `files/arm64-dotconfig`
+is too apart from the appended fragment. So upstream's changes — new header file
+lists in `do_install`, `hostmakedepends` bumps, config changes — are inherited
+automatically, and anything that collides with our patches fails the generation
+loudly instead of rotting silently. [`srcpkg/UPSTREAM`](./srcpkg/UPSTREAM)
+records which void-packages revision the committed output was generated from.
 
 The one patch this repository used to carry pointed the kernel's Rust
 `--extern` flags at its in-tree rlibs: Void's `rust-std` ships
@@ -137,6 +138,25 @@ was dropped. Upstream comments it "can be dropped once aarch64 is built
 natively" — but for us the collision comes from Void's `rust-std`, not from
 cross-building, so `gen.sh` asserts that line still exists and fails generation
 if it disappears rather than letting an hours-long build hit `E0464`.
+
+#### Answering new kernel config symbols
+
+`arm64-dotconfig` is upstream's, answered for upstream's base kernel. The
+fairydust snapshot usually runs ahead of it, so symbols that only exist in the
+newer tree are unanswered and `make oldconfig` stops for input part-way through
+a build. Record the answer in [`srcpkg/config-extra`](./srcpkg/config-extra) —
+plain `.config` syntax, `CONFIG_FOO=m` or `# CONFIG_FOO is not set` — and
+`gen.sh` appends it to the generated dotconfig, so the build runs unattended:
+
+```
+CONFIG_TYPEC_SN201202X=m
+```
+
+This is the `patches/` idea applied to the config: the entries are ours, and
+when upstream's dotconfig starts answering a symbol itself, generation fails
+with the symbol name so the now-redundant line can be dropped. `--check`
+compares the dotconfig against upstream *plus* the fragment, so the drift report
+stays meaningful.
 
 ```sh
 ./gen.sh                      # regenerate from the void-packages working tree
