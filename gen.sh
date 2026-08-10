@@ -2,18 +2,20 @@
 # Generate srcpkg/linux-asahi-fairydust from void-packages' srcpkgs/linux-asahi.
 #
 # The fairydust package is upstream's linux-asahi template with a different
-# source pin, a different kernel name, and one build fix. Rather than vendoring
-# a full copy that silently rots, the template is *generated*:
+# source pin and a different kernel name. Rather than vendoring a full copy that
+# silently rots, the template is *generated*:
 #
 #   srcpkg/header.in            -> the metadata head (pkgname/version/_commit/...)
 #   upstream template, line 11+ -> everything else, with the asahi -> asahi-fairydust
 #                                  renames applied mechanically
-#   srcpkg/patches/*.patch      -> our genuine modifications (currently one)
+#   srcpkg/patches/*.patch      -> our genuine modifications (currently none:
+#                                  upstream carries the one fix we used to add)
 #   files/                      -> copied verbatim from upstream
 #
 # Anything upstream changes below the head (headers file lists, hostmakedepends,
 # do_install, ...) is therefore picked up for free; anything that collides with
-# our patches makes this script fail loudly, which is the point.
+# our patches, or removes something we depend on, makes this script fail loudly,
+# which is the point.
 #
 # Usage:
 #   ./gen.sh                 regenerate srcpkg/linux-asahi-fairydust
@@ -141,6 +143,19 @@ generate() {
 	done
 	! grep -q "${UPSTREAM_PKG}-\(headers\|dbg\)" "$OUT/template" ||
 		die "leftover '${UPSTREAM_PKG}-headers/-dbg' reference in the generated template"
+
+	# Void's rust-std ships proc_macro2/quote/syn in the compiler sysroot, which
+	# upstream Rust does not, so the kernel's in-tree copies collide with them
+	# and rustc fails with E0464. We used to patch the fix in; upstream now does
+	# it in pre_configure(), commented "can be dropped once aarch64 is built
+	# natively" -- but the collision is a property of Void's rust-std, not of
+	# cross-building, so it would come back for us. Fail here rather than hours
+	# into a build if that line disappears; the patch is in git history
+	# (srcpkg/patches/0001-rust-extern-disambiguate.patch) to restore.
+	grep -q 'libproc_macro2\.rlib' "$OUT/template" ||
+		die "upstream dropped the rust --extern disambiguation from pre_configure().
+E0464 will come back on Void (its rust-std ships proc_macro2/quote/syn).
+Restore srcpkg/patches/0001-rust-extern-disambiguate.patch from git history."
 
 	for p in "$PATCHDIR"/*.patch; do
 		[ -e "$p" ] || continue

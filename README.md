@@ -112,14 +112,14 @@ Maintainers can rebuild + sign + assemble this repository with
 ### How the template tracks upstream
 
 `srcpkg/linux-asahi-fairydust/` is a **generated** artifact, not a hand-edited
-fork. It is void-packages' own `srcpkgs/linux-asahi` with three things layered
-on by [`gen.sh`](./gen.sh):
+fork. It is void-packages' own `srcpkgs/linux-asahi` with these layered on by
+[`gen.sh`](./gen.sh):
 
-| input | what it contributes |
-| --- | --- |
-| [`srcpkg/header.in`](./srcpkg/header.in) | the metadata head: `pkgname`, `version`, `_commit`, `distfiles`, `checksum` |
+| input                                             | what it contributes                                                            |
+| ------------------------------------------------- | ------------------------------------------------------------------------------ |
+| [`srcpkg/header.in`](./srcpkg/header.in)          | the metadata head: `pkgname`, `version`, `_commit`, `distfiles`, `checksum`    |
 | upstream's template, from `python_version=3` down | everything else, with `asahi` → `asahi-fairydust` renames applied mechanically |
-| [`srcpkg/patches/`](./srcpkg/patches/) | our genuine build fixes (currently one, for Rust proc-macro crates) |
+| `srcpkg/patches/*.patch`                          | our genuine build fixes — **currently none**, see below                        |
 
 `files/arm64-dotconfig` and `files/mv-debug` are copied from upstream verbatim.
 So upstream's changes — new header file lists in `do_install`, `hostmakedepends`
@@ -127,6 +127,16 @@ bumps, config changes — are inherited automatically, and anything that collide
 with our patches fails the generation loudly instead of rotting silently.
 [`srcpkg/UPSTREAM`](./srcpkg/UPSTREAM) records which void-packages revision the
 committed output was generated from.
+
+The one patch this repository used to carry pointed the kernel's Rust
+`--extern` flags at its in-tree rlibs: Void's `rust-std` ships
+`proc_macro2`/`quote`/`syn` in the compiler sysroot, which upstream Rust does
+not, so `rustc` sees two candidates for each and fails with `E0464`. Upstream
+void-packages now does the same substitution in `pre_configure()`, so the patch
+was dropped. Upstream comments it "can be dropped once aarch64 is built
+natively" — but for us the collision comes from Void's `rust-std`, not from
+cross-building, so `gen.sh` asserts that line still exists and fails generation
+if it disappears rather than letting an hours-long build hit `E0464`.
 
 ```sh
 ./gen.sh                      # regenerate from the void-packages working tree
