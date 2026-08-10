@@ -7,8 +7,19 @@
 # don't ship debug packages in the main repository either).
 #
 # Usage:
-#   ./mkrepo.sh              # build + sign into ./dist/aarch64 only
-#   PUBLISH=1 ./mkrepo.sh    # also force-push it to the repository-aarch64 branch
+#   ./mkrepo.sh [build]      # build + sign into ./dist/aarch64 only (default)
+#   ./mkrepo.sh publish      # push an already-built ./dist/aarch64 to the branch
+#   ./mkrepo.sh all          # build, then publish
+#
+# The two halves are separate so a build can be test-installed locally before it
+# is published, and then published without rebuilding or re-signing anything:
+#
+#   ./mkrepo.sh
+#   sudo xbps-install --repository=<repo>/dist/aarch64 linux-asahi-fairydust
+#   ...reboot, try it...
+#   ./mkrepo.sh publish
+#
+# PUBLISH=1 is still honoured for compatibility and means the same as "all".
 #
 # Overridable via environment:
 #   VOIDPKGS   path to the void-packages checkout (default: ~/github/omemoji/void-packages)
@@ -30,6 +41,60 @@ ARCH=aarch64
 BRANCH="repository-$ARCH"
 HERE=$(CDPATH= cd "$(dirname "$0")" && pwd)
 DIST="$HERE/dist/$ARCH"
+
+# --- mode ------------------------------------------------------------------
+MODE="${1:-build}"
+case "$MODE" in
+build|publish|all) ;;
+*) echo "usage: ${0##*/} [build|publish|all]" >&2; exit 1 ;;
+esac
+# PUBLISH=1 predates the subcommands and used to mean "build, then publish".
+if [ "${PUBLISH:-0}" = 1 ] && [ "$MODE" = build ]; then
+	MODE=all
+fi
+
+# --- publish ---------------------------------------------------------------
+# Force-push $DIST to the orphan branch, in a throwaway clone so the working
+# tree/branch you are on is untouched. The branch is recreated from scratch each
+# time (single commit, no history bloat from large binaries). Nothing here
+# rebuilds or re-signs: it ships exactly the bytes that are already in $DIST.
+do_publish() {
+	# Refuse to publish a repository that is not a complete, signed one -- a
+	# missing signature only shows up as a failed install on a user's machine.
+	[ -d "$DIST" ] || { echo "error: $DIST does not exist; run '${0##*/} build' first" >&2; exit 1; }
+	[ -f "$DIST/$ARCH-repodata" ] || { echo "error: $DIST/$ARCH-repodata missing (repository not indexed/signed)" >&2; exit 1; }
+	set -- "$DIST"/*.xbps
+	[ -f "$1" ] || { echo "error: no .xbps packages in $DIST" >&2; exit 1; }
+	for f in "$@"; do
+		[ -f "$f.sig2" ] || { echo "error: unsigned package: $f (no $f.sig2)" >&2; exit 1; }
+	done
+
+	remote=$(git -C "$HERE" remote get-url origin)
+	tmp=$(mktemp -d)
+	trap 'rm -rf "$tmp"' EXIT
+	echo ">> publishing to branch $BRANCH on $remote"
+	git clone -q "$HERE" "$tmp/pub"
+	(
+		cd "$tmp/pub"
+		git checkout -q --orphan "$BRANCH"
+		git rm -rqf . >/dev/null 2>&1 || true   # empty the branch (no source files, no history)
+		cp "$DIST"/* .
+		git add -A
+		git -c user.name="mkrepo" -c user.email="mkrepo@localhost" \
+			commit -q -m "Update $ARCH repository ($(date -u +%Y-%m-%dT%H:%M:%SZ))"
+		git push -qf "$remote" "$BRANCH"
+	)
+	echo ">> published. Users install from:"
+	echo "   repository=https://raw.githubusercontent.com/${remote#*github.com[:/]}/$BRANCH" \
+		| sed 's/\.git//'
+}
+
+if [ "$MODE" = publish ]; then
+	# No build, no signing: skip the toolchain and key checks entirely, so this
+	# runs on a machine that has neither xbps-src nor the private key.
+	do_publish
+	exit 0
+fi
 
 # --- sanity checks ---------------------------------------------------------
 [ -x "$HERE/gen.sh" ] || { echo "error: gen.sh not found next to mkrepo.sh" >&2; exit 1; }
@@ -127,31 +192,18 @@ echo "Repository ready: $DIST"
 ls -1 "$DIST"
 
 # --- 5. publish to the orphan branch ---------------------------------------
-# Done in a throwaway clone so the working tree/branch you are on is untouched.
-# The branch is recreated from scratch each time (single commit, no history
-# bloat from large binaries).
-if [ "${PUBLISH:-0}" = 1 ]; then
-	remote=$(git -C "$HERE" remote get-url origin)
-	tmp=$(mktemp -d)
-	trap 'rm -rf "$tmp"' EXIT
-	echo ">> publishing to branch $BRANCH on $remote"
-	git clone -q "$HERE" "$tmp/pub"
-	cd "$tmp/pub"
-	git checkout -q --orphan "$BRANCH"
-	git rm -rqf . >/dev/null 2>&1 || true   # empty the branch (no source files, no history)
-	cp "$DIST"/* .
-	git add -A
-	git -c user.name="mkrepo" -c user.email="mkrepo@localhost" \
-		commit -q -m "Update $ARCH repository ($(date -u +%Y-%m-%dT%H:%M:%SZ))"
-	git push -qf "$remote" "$BRANCH"
-	echo ">> published. Users install from:"
-	echo "   repository=https://raw.githubusercontent.com/${remote#*github.com[:/]}/$BRANCH" \
-		| sed 's/\.git//'
+if [ "$MODE" = all ]; then
+	do_publish
 else
 	cat <<EOF
 
-Not published (set PUBLISH=1 to push). To publish manually, force-push the
-contents of $DIST to the '$BRANCH' branch (orphan, single commit).
+Not published. Try this build first:
+
+  sudo xbps-install --repository=$DIST $PKG
+
+then publish exactly these packages, without rebuilding or re-signing:
+
+  ${0##*/} publish
 
 Users install from:
   repository=https://raw.githubusercontent.com/omemoji/void-asahi-fairydust/$BRANCH

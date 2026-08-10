@@ -98,7 +98,10 @@ jobs:
           ./gen.sh --bump fairydust   # only if the fairydust head moved
           ./gen.sh                    # regenerate against current upstream
           git diff srcpkg/            # review what upstream changed
-          ./mkrepo.sh                 # build on aarch64, then PUBLISH=1 to ship
+          ./mkrepo.sh                 # build + sign on aarch64 -> dist/aarch64/
+          sudo xbps-install --repository=\$PWD/dist/aarch64 linux-asahi-fairydust
+          # reboot into it, confirm it works, then ship those exact packages:
+          ./mkrepo.sh publish
           \`\`\`
 
           Closing this issue is fine; the next run reopens it while drift remains.

@@ -107,7 +107,7 @@ ln -sfn linux-asahi-fairydust srcpkgs/linux-asahi-fairydust-dbg
 ```
 
 Maintainers can rebuild + sign + assemble this repository with
-[`mkrepo.sh`](./mkrepo.sh).
+[`mkrepo.sh`](./mkrepo.sh); see [Maintaining the repository](#maintaining-the-repository).
 
 ### How the template tracks upstream
 
@@ -138,6 +138,32 @@ committed output was generated from.
 `mkrepo.sh` regenerates before every build, so the committed `srcpkg/` always
 equals what was actually built and published. Pass `SKIP_GEN=1` to build the
 committed template as-is, or `GENFROM=<rev>` to reproduce an older sync.
+
+### Maintaining the repository
+
+[`mkrepo.sh`](./mkrepo.sh) keeps building and publishing separate, so a build can
+be test-installed on real hardware before anyone else sees it:
+
+```sh
+./mkrepo.sh          # generate, build, index, sign -> dist/aarch64/ (default)
+./mkrepo.sh publish  # force-push dist/aarch64/ to the repository-aarch64 branch
+./mkrepo.sh all      # both, in one go
+```
+
+`dist/aarch64/` is a complete signed xbps repository, so the build can be
+installed straight from disk before it is published — reboot into it, confirm
+the display actually comes up, and only then publish:
+
+```sh
+sudo xbps-install --repository=$PWD/dist/aarch64 linux-asahi-fairydust
+```
+
+`publish` neither rebuilds nor re-signs: it ships exactly the bytes that were
+tested, and refuses to run if `dist/aarch64/` is missing its index or any
+package signature. It needs no signing key and no void-packages checkout, so it
+can run from a different machine than the build. The branch is recreated as a
+single orphan commit each time, in a throwaway clone, so the branch you are
+working on is untouched and the history does not accumulate old kernels.
 
 The [`track-upstream`](./.github/workflows/track-upstream.yml) workflow runs
 `gen.sh --check` weekly and also compares `_commit` against the head of the

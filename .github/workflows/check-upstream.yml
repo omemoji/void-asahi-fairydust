@@ -49,7 +49,7 @@ jobs:
             --body "Upstream \`fairydust\` HEAD is \`${upstream}\`, but the template pins \`${pinned}\`.
 
           To update and republish (locally, on aarch64):
-          1. \`_commit=${upstream}\`
-          2. refresh \`version\` — base kernel (top-level Makefile \`VERSION.PATCHLEVEL.SUBLEVEL\`) + the commit's committer date, and reset \`revision=1\`
-          3. \`xgensum -c -i linux-asahi-fairydust\` to regenerate the \`@\` checksum
-          4. \`./mkrepo.sh\` then upload the assets"
+          1. \`./gen.sh --bump ${upstream}\` — repins \`_commit\`, refreshes \`version\` and the \`@\` checksum in \`srcpkg/header.in\`, resets \`revision=1\`, and regenerates the template
+          2. \`./mkrepo.sh\` — build + sign into \`dist/aarch64/\`
+          3. \`sudo xbps-install --repository=\$PWD/dist/aarch64 linux-asahi-fairydust\`, reboot, confirm it works
+          4. \`./mkrepo.sh publish\` — ship exactly those packages"
