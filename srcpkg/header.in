@@ -1,6 +1,6 @@
 # Template file for 'linux-asahi-fairydust'
 pkgname=linux-asahi-fairydust
-version=7.1.5+20260727
+version=7.1.6+20260806
 revision=1
 short_desc="Linux kernel and modules for Apple Silicon (fairydust branch)"
 maintainer="omemoji <me@omemoji.com>"
@@ -16,6 +16,6 @@ homepage="https://asahilinux.org"
 # NOTE: this block is the head of the generated template; everything below it
 # comes from void-packages' srcpkgs/linux-asahi. Use ./gen.sh --bump to advance
 # the snapshot rather than editing _commit/version/checksum by hand.
-_commit=e3e35907c17a05773d481e58a566bf9108166cc5
+_commit=eb8089bbc11872c50fcf5138ff069d51b4ae996f
 distfiles="https://github.com/AsahiLinux/linux/archive/${_commit}.tar.gz"
-checksum=@184ea99fbf7fc5176be1a94f15ab04e85161ce900cf39d6917bc0594fd711080
+checksum=@0f1930889c74139b32d65dbcbb45e0592ceb63c77df4a8bc7c04b49f01b5bb16
