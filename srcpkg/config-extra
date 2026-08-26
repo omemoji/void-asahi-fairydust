@@ -7,4 +7,3 @@
 
 # TI SN201202x: TPS6598x-variant USB PD controller on SPMI, Apple M3 and later.
 # Irrelevant to M1/M2, but this repository serves those machines too.
-CONFIG_TYPEC_SN201202X=m
