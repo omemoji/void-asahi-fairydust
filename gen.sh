@@ -293,7 +293,8 @@ bump() {
 	command -v curl >/dev/null || die "curl is required for --bump"
 
 	echo ">> resolving $GITHUB_REPO@$ref"
-	meta=$(curl -fsSL -H 'Accept: application/vnd.github+json' \
+	meta=$(curl -fsSL --retry 5 --retry-delay 3 --retry-all-errors \
+		-H 'Accept: application/vnd.github+json' \
 		"https://api.github.com/repos/$GITHUB_REPO/commits/$ref") ||
 		die "cannot reach the GitHub API"
 	# committer date, not author date: it is what the version suffix means, and
@@ -321,7 +322,8 @@ bump() {
 	# The version prefix is the base kernel release, which lives in the tree's
 	# top-level Makefile -- read it rather than assuming the snapshot stayed on
 	# the same base.
-	mk=$(curl -fsSL "https://raw.githubusercontent.com/$GITHUB_REPO/$sha/Makefile") ||
+	mk=$(curl -fsSL --retry 5 --retry-delay 3 --retry-all-errors \
+		"https://raw.githubusercontent.com/$GITHUB_REPO/$sha/Makefile") ||
 		die "cannot read the Makefile of $sha"
 	base=$(printf '%s\n' "$mk" | awk -F'= *' '
 		/^VERSION *=/    { v=$2 }
@@ -336,8 +338,19 @@ bump() {
 
 	url="https://github.com/$GITHUB_REPO/archive/$sha.tar.gz"
 	echo ">> computing contents checksum (downloads the tarball, this takes a while)"
-	sum=$(curl -fsSL "$url" | tar -xOzf - | sha256sum | cut -d' ' -f1) ||
-		die "failed to download or hash $url"
+	# A pipeline reports the status of its *last* command, so a failing curl
+	# here used to be masked and we would happily pin sha256("") instead.
+	# Record failures of the upstream stages in a file and check it afterwards.
+	err=$(mktemp)
+	sum=$( { curl -fsSL --retry 5 --retry-delay 3 --retry-all-errors "$url" ||
+			echo "curl failed" >>"$err"; } |
+		{ tar -xOzf - || echo "tar failed" >>"$err"; } |
+		sha256sum | cut -d' ' -f1 )
+	if [ -s "$err" ]; then
+		why=$(tr '\n' '; ' <"$err"); rm -f "$err"
+		die "failed to download or hash $url ($why)"
+	fi
+	rm -f "$err"
 
 	tmp=$(mktemp)
 	sed -e "s/^_commit=.*/_commit=$sha/" \
