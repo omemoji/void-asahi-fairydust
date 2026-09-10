@@ -1,6 +1,6 @@
 # Template file for 'linux-asahi-fairydust'
 pkgname=linux-asahi-fairydust
-version=7.1.12+20260831
+version=7.1.13+20260908
 revision=1
 short_desc="Linux kernel and modules for Apple Silicon (fairydust branch)"
 maintainer="omemoji <me@omemoji.com>"
@@ -16,9 +16,9 @@ homepage="https://asahilinux.org"
 # NOTE: this block is the head of the generated template; everything below it
 # comes from void-packages' srcpkgs/linux-asahi. Use ./gen.sh --bump to advance
 # the snapshot rather than editing _commit/version/checksum by hand.
-_commit=b8810ad6442699f610984f3eceea2e3234a50b77
+_commit=ce9f2eba72c061a50b2d790450e90af3439d8c24
 distfiles="https://github.com/AsahiLinux/linux/archive/${_commit}.tar.gz"
-checksum=@8703e44017e6b7a50399ef170d5a0c1e79bfa5aec5922876884b033c8957fc8a
+checksum=@f724a31f7b1705779b1d2bf4f293e1d4c87ae02dbd2c2d485d5bbb6c533a87d2
 
 python_version=3
 
@@ -31,7 +31,7 @@ noshlibprovides=yes
 preserve=yes
 
 hostmakedepends="tar xz bc elfutils-devel flex gmp-devel kmod libmpc-devel
- pkg-config openssl-devel perl pahole python3 zstd
+ pkgconf openssl-devel perl pahole python3 zstd
  rust rust-bindgen rust-src"
 
 _kernver=${version}-asahi-fairydust_${revision}
