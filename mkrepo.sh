@@ -103,9 +103,9 @@ do_publish() {
 			commit -q -m "Update $ARCH repository ($(date -u +%Y-%m-%dT%H:%M:%SZ))"
 		git push -qf "$remote" "$BRANCH"
 	)
+	slug=${remote#*github.com[:/]}
 	echo ">> published. Users install from:"
-	echo "   repository=https://raw.githubusercontent.com/${remote#*github.com[:/]}/$BRANCH" \
-		| sed 's/\.git//'
+	echo "   repository=https://raw.githubusercontent.com/${slug%.git}/$BRANCH"
 }
 
 if [ "$MODE" = publish ]; then
