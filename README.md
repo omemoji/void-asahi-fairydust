@@ -195,6 +195,40 @@ can run from a different machine than the build. The branch is recreated as a
 single orphan commit each time, in a throwaway clone, so the branch you are
 working on is untouched and the history does not accumulate old kernels.
 
+### Personal builds with your own config
+
+To turn on kernel options for your own machine without changing what the
+repository ships (for example binder for Waydroid), put them in
+`srcpkg/config-local`. That file is gitignored. It uses the same syntax as
+`config-extra`, but each line *replaces* upstream's answer instead of filling a
+gap:
+
+```
+CONFIG_ANDROID_BINDER_IPC=y
+CONFIG_ANDROID_BINDERFS=y
+CONFIG_ANDROID_BINDER_DEVICES="binder,hwbinder,vndbinder"
+```
+
+(Binder is `bool` in Kconfig, so it can only be built in, not built as a module.
+`ANDROID_BINDER_DEVICES` appears only once binder is enabled, so it needs an
+answer too, or `oldconfig` stops to ask for one.)
+
+```sh
+./mkrepo.sh local     # LOCALCONFIG=<file> to use a fragment from elsewhere
+sudo xbps-install -f --repository=$PWD/dist/aarch64-local linux-asahi-fairydust
+```
+
+The fragment is applied only to the copy staged for the build, never to the
+committed `srcpkg/`. The result goes to its own binpkg repository and to
+`dist/aarch64-local/`, so `publish` cannot ship it and `REUSE_BINPKG` cannot
+mix it up with a release build. After the build, every line of the fragment is
+checked against the kernel's actual `boot/config-*`, and the run fails if one
+did not take effect, for example because a dependency is missing. The local
+repository is unsigned (xbps checks signatures only on remote repositories),
+so this mode needs no signing key. It has the same version as the release
+build, so `xbps-install -Su` will replace it with the next published
+snapshot. Rebuild it locally when that happens.
+
 The [`track-upstream`](./.github/workflows/track-upstream.yml) workflow runs
 `gen.sh --check` weekly and also compares `_commit` against the head of the
 `fairydust` branch, filing a single self-updating issue when either moves. It

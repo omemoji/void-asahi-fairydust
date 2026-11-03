@@ -10,6 +10,8 @@
 #   ./mkrepo.sh [build]      # build + sign into ./dist/aarch64 only (default)
 #   ./mkrepo.sh publish      # push an already-built ./dist/aarch64 to the branch
 #   ./mkrepo.sh all          # build, then publish
+#   ./mkrepo.sh local        # personal build with srcpkg/config-local applied,
+#                            # into ./dist/aarch64-local; never published
 #
 # The two halves are separate so a build can be test-installed locally before it
 # is published, and then published without rebuilding or re-signing anything:
@@ -33,6 +35,16 @@
 #   SKIP_GEN=1 build srcpkg/ as committed, without regenerating from upstream
 #   REUSE_BINPKG=1  pass -e to xbps-src: if a binary package for this exact
 #              version/revision already exists locally, do not rebuild it
+#   LOCALCONFIG  config fragment for "local" (default: srcpkg/config-local)
+#
+# "local" is for kernel options you want on your own machine but not in what the
+# repository ships (e.g. binder for Waydroid). LOCALCONFIG uses the same syntax
+# as srcpkg/config-extra, but *overrides* upstream's answer instead of filling a
+# gap. It is applied to the staged copy only -- srcpkg/ in git never sees it --
+# and the build lands in its own binpkg repository and dist directory, so it can
+# neither be published nor be picked up by REUSE_BINPKG for a release build.
+# The local repository is left unsigned: xbps only checks signatures on remote
+# repositories, so it needs no signing key.
 set -eu
 
 VOIDPKGS="${VOIDPKGS:-$HOME/github/omemoji/void-packages}"
@@ -65,13 +77,35 @@ trap 'cleanup; exit 143' TERM
 # --- mode ------------------------------------------------------------------
 MODE="${1:-build}"
 case "$MODE" in
-build|publish|all) ;;
-*) echo "usage: ${0##*/} [build|publish|all]" >&2; exit 1 ;;
+build|publish|all|local) ;;
+*) echo "usage: ${0##*/} [build|publish|all|local]" >&2; exit 1 ;;
 esac
 # PUBLISH=1 predates the subcommands and used to mean "build, then publish".
 if [ "${PUBLISH:-0}" = 1 ] && [ "$MODE" = build ]; then
 	MODE=all
 fi
+
+if [ "$MODE" = local ]; then
+	DIST="$HERE/dist/$ARCH-local"
+	LOCALCONFIG="${LOCALCONFIG:-$HERE/srcpkg/config-local}"
+	[ -f "$LOCALCONFIG" ] || {
+		echo "error: local config not found: $LOCALCONFIG" >&2
+		echo "       create it (same syntax as srcpkg/config-extra) or set LOCALCONFIG" >&2
+		exit 1; }
+else
+	LOCALCONFIG=""   # an exported LOCALCONFIG must not leak into a release build
+fi
+
+# Print the symbol a config-fragment line sets; nothing for blanks/comments.
+config_sym() {
+	case "$1" in
+	"")                            ;;
+	"# CONFIG_"*" is not set")     _s=${1#\# }; printf '%s\n' "${_s%% *}" ;;
+	CONFIG_*=*)                    printf '%s\n' "${1%%=*}" ;;
+	\#*)                           ;;
+	*) echo "error: $LOCALCONFIG: not a config line: $1" >&2; return 1 ;;
+	esac
+}
 
 # --- publish ---------------------------------------------------------------
 # Force-push $DIST to the orphan branch, in a throwaway clone so the working
@@ -118,13 +152,21 @@ fi
 # --- sanity checks ---------------------------------------------------------
 [ -x "$HERE/gen.sh" ] || { echo "error: gen.sh not found next to mkrepo.sh" >&2; exit 1; }
 [ -x "$VOIDPKGS/xbps-src" ] || { echo "error: xbps-src not found under VOIDPKGS=$VOIDPKGS" >&2; exit 1; }
-[ -f "$PRIVKEY" ] || { echo "error: signing key not found: $PRIVKEY" >&2; exit 1; }
 command -v xbps-rindex >/dev/null || { echo "error: xbps-rindex not in PATH" >&2; exit 1; }
+if [ "$MODE" != local ]; then
+	[ -f "$PRIVKEY" ] || { echo "error: signing key not found: $PRIVKEY" >&2; exit 1; }
+fi
+# Fail on a malformed local fragment now, not after the clone and generation.
+if [ -n "$LOCALCONFIG" ]; then
+	while IFS= read -r line || [ -n "$line" ]; do
+		config_sym "$line" >/dev/null || exit 1
+	done < "$LOCALCONFIG"
+fi
 
 # --- signing passphrase ----------------------------------------------------
 # If the key is passphrase-protected, read it once so the two signing steps
 # below don't prompt twice. xbps-rindex picks it up from XBPS_PASSPHRASE.
-if grep -q ENCRYPTED "$PRIVKEY" && [ -z "${XBPS_PASSPHRASE:-}" ]; then
+if [ "$MODE" != local ] && grep -q ENCRYPTED "$PRIVKEY" && [ -z "${XBPS_PASSPHRASE:-}" ]; then
 	printf "Passphrase for signing key: " >&2
 	stty -echo 2>/dev/null || true
 	read XBPS_PASSPHRASE
@@ -180,6 +222,22 @@ fi
 echo ">> staging srcpkg/$PKG into the worktree"
 cp -a "$HERE/srcpkg/$PKG" "$WORKTREE/srcpkgs/"
 
+# Local overrides go into the staged copy only. Unlike config-extra, a symbol
+# upstream already answers is replaced rather than refused: drop its existing
+# line, then append ours, so the dotconfig carries exactly one answer for it.
+if [ -n "$LOCALCONFIG" ]; then
+	dc="$WORKTREE/srcpkgs/$PKG/files/arm64-dotconfig"
+	echo ">> applying $LOCALCONFIG"
+	printf '\n# --- %s ---\n' "${LOCALCONFIG##*/}" >> "$dc"
+	while IFS= read -r line || [ -n "$line" ]; do
+		sym=$(config_sym "$line")
+		[ -n "$sym" ] || continue
+		sed -i -e "/^$sym=/d" -e "/^# $sym is not set\$/d" "$dc"
+		printf '%s\n' "$line" >> "$dc"
+		echo "   $line"
+	done < "$LOCALCONFIG"
+fi
+
 # xbps-src resolves every subpackage through its own srcpkgs/ entry, which must
 # be a symlink to the parent package's directory (that is how upstream ships
 # linux-asahi-headers and -dbg). Without them the build dies at the packaging
@@ -203,7 +261,15 @@ done
 # derives that from the git branch, so the output path would depend on a
 # checkout's state; it is also one of the few variables that survive the chroot
 # boundary, which xbps-src crosses with "env -i" and a whitelist.
-export XBPS_ALT_REPOSITORY="$PKG"
+#
+# A local build has the same pkgver as a release one, so it gets a repository
+# of its own: sharing one would let either overwrite the other's .xbps, and
+# REUSE_BINPKG would happily ship a local build.
+if [ "$MODE" = local ]; then
+	export XBPS_ALT_REPOSITORY="$PKG-local"
+else
+	export XBPS_ALT_REPOSITORY="$PKG"
+fi
 echo ">> building $PKG in $WORKTREE"
 ( cd "$WORKTREE" && ./xbps-src \
 	-m "$VOIDPKGS/masterdir-$ARCH" -H "$VOIDPKGS/hostdir" \
@@ -220,6 +286,30 @@ _revision=$(sed -n 's/^revision=//p' "$WORKTREE/srcpkgs/$PKG/template" | head -1
 	echo "error: could not read version/revision from the staged template" >&2; exit 1; }
 PKGVER="${_version}_${_revision}"
 
+# oldconfig silently drops an answer whose dependencies are not met (and
+# asahi.config is merged after our fragment), so check the config that was
+# actually built rather than trusting the fragment.
+if [ -n "$LOCALCONFIG" ]; then
+	echo ">> verifying $LOCALCONFIG against the built kernel config"
+	built=$(tar -xOf "$binroot/${PKG}-${PKGVER}.${ARCH}.xbps" --wildcards './boot/config-*') || {
+		echo "error: cannot read boot/config-* from the built package" >&2; exit 1; }
+	bad=0
+	while IFS= read -r line || [ -n "$line" ]; do
+		sym=$(config_sym "$line")
+		[ -n "$sym" ] || continue
+		case "$line" in
+		\#*) printf '%s\n' "$built" | grep -q "^$sym=" || continue ;;
+		*)   printf '%s\n' "$built" | grep -qxF -- "$line" && continue ;;
+		esac
+		got=$(printf '%s\n' "$built" | grep -e "^$sym=" -e "^# $sym is not set\$" || true)
+		echo "   wanted: $line" >&2
+		echo "   built:  ${got:-(absent: dependencies not met?)}" >&2
+		bad=1
+	done < "$LOCALCONFIG"
+	[ "$bad" = 0 ] || {
+		echo "error: the built kernel does not have the requested config" >&2; exit 1; }
+fi
+
 echo ">> assembling repository in $DIST ($PKGVER)"
 rm -rf "$DIST"; mkdir -p "$DIST"
 for sub in "$PKG" $subpkgs; do   # $subpkgs holds the subpackages only
@@ -235,17 +325,30 @@ done
 # --- 5. index + sign -------------------------------------------------------
 echo ">> indexing"
 xbps-rindex -a "$DIST"/*.xbps
-echo ">> signing repository metadata"
-xbps-rindex --sign --signedby "$SIGNEDBY" --privkey "$PRIVKEY" "$DIST"
-echo ">> signing packages"
-xbps-rindex --sign-pkg --privkey "$PRIVKEY" "$DIST"/*.xbps
+if [ "$MODE" != local ]; then
+	echo ">> signing repository metadata"
+	xbps-rindex --sign --signedby "$SIGNEDBY" --privkey "$PRIVKEY" "$DIST"
+	echo ">> signing packages"
+	xbps-rindex --sign-pkg --privkey "$PRIVKEY" "$DIST"/*.xbps
+fi
 
 echo
 echo "Repository ready: $DIST"
 ls -1 "$DIST"
 
 # --- 6. publish to the orphan branch ---------------------------------------
-if [ "$MODE" = all ]; then
+if [ "$MODE" = local ]; then
+	cat <<EOF
+
+Local build (with ${LOCALCONFIG#"$HERE/"}); not signed, never published.
+Install it with:
+
+  sudo xbps-install -f --repository=$DIST $PKG
+
+-f is needed when the release build of $PKGVER is already installed: both
+have the same version, and --repository puts this one first.
+EOF
+elif [ "$MODE" = all ]; then
 	do_publish
 else
 	cat <<EOF

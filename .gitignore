@@ -5,3 +5,5 @@ dist/
 *-repodata
 privkey.pem
 *.key
+# Personal kernel config for "./mkrepo.sh local"; never part of a release.
+srcpkg/config-local
