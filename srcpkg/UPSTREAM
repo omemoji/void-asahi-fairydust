@@ -1,3 +1,3 @@
-void-packages: e96572b8c66da1c669b6ed167260e5fd2b32b6f1
-upstream-version: 7.2.12+2
-template-sha256: 0995c43647be2e7ee642a56ff435a741f305e6254cb9bce48a0b1da624ff161e
+void-packages: 61ddd648754ac14afd917c9fbb65f7900e128df0
+upstream-version: 7.2.15+1
+template-sha256: 5558957a4b51e9b980679bdc399f5d5292f0b64d56647454c728efe2acf6ec9b
